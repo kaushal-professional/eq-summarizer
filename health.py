@@ -18,7 +18,7 @@ import uvicorn
 # CONFIGURATION
 # =============================================================================
 
-HEALTH_CHECK_URL = "https://penny-00h7.onrender.com"
+HEALTH_CHECK_URL = "https://eq-summarizer.onrender.com"
 HEALTH_CHECK_INTERVAL = 300  # 5 minutes in seconds
 SUMMARIZER_SCRIPT = "summarizer.py"
 
@@ -183,3 +183,4 @@ if __name__ == "__main__":
         reload=False,
         log_level="info"
     )
+
