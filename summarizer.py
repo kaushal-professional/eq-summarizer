@@ -36,7 +36,6 @@ GOOGLE_SHEETS_ID = "1l_6Sx_u1czhY-5JdT22tpmCV8Os3XuZmZ3U2ShKDLHw"
 SUMMARY_TELEGRAM_BOT_TOKEN = "8490433133:AAEvchBW14co_Obtr8FPl_Nqg3LzqahEuNM"
 SUMMARY_TELEGRAM_CHAT_ID = "8388919023"
 SUMMARY_SEND_TIME = "16:30"  # 4:30 PM IST
-SUMMARY_SEND_INTERVAL = 7200  # 2 hours in seconds
 
 # Load Google Credentials from Environment Variables
 try:
@@ -96,8 +95,6 @@ class SummaryTelegramHandler:
         self.bot_token = SUMMARY_TELEGRAM_BOT_TOKEN
         self.chat_id = SUMMARY_TELEGRAM_CHAT_ID
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
-        self.last_update_id = 0
-        self.stop_sending_today = False
         
     def send_message(self, message):
         """Send a message to Telegram"""
@@ -136,58 +133,6 @@ class SummaryTelegramHandler:
             
         except Exception as e:
             print(f"Error sending multiple messages: {e}")
-            return False
-    
-    def get_updates(self):
-        """Get latest messages from Telegram"""
-        try:
-            url = f"{self.base_url}/getUpdates"
-            params = {
-                "offset": self.last_update_id + 1,
-                "timeout": 10
-            }
-            response = requests.get(url, params=params, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("ok") and data.get("result"):
-                    updates = data["result"]
-                    if updates:
-                        self.last_update_id = updates[-1]["update_id"]
-                    return updates
-            return []
-        except Exception as e:
-            print(f"Error getting Telegram updates: {e}")
-            return []
-    
-    def check_for_done_message(self):
-        """Check if 'done' message has been received"""
-        try:
-            updates = self.get_updates()
-            for update in updates:
-                if "message" in update and "text" in update["message"]:
-                    text = update["message"]["text"].strip().lower()
-                    if text == "done":
-                        print("'Done' message received - stopping summaries for today")
-                        self.stop_sending_today = True
-                        return True
-            return False
-        except Exception as e:
-            print(f"Error checking for done message: {e}")
-            return False
-    
-    def check_for_send_message(self):
-        """Check if 'send' message has been received"""
-        try:
-            updates = self.get_updates()
-            for update in updates:
-                if "message" in update and "text" in update["message"]:
-                    text = update["message"]["text"].strip().lower()
-                    if text == "send":
-                        print("'Send' message received - will send immediate summary")
-                        return True
-            return False
-        except Exception as e:
-            print(f"Error checking for send message: {e}")
             return False
 
 # =============================================================================
@@ -573,8 +518,6 @@ Top 15 Total Value: Rs.{total_top15_value:,.2f} Cr
 <i>Analysis Complete for {date_info}</i>
 <i>Ranked by highest trade count</i>
 <i>Values from Trd_Val_Cr column</i>
-
-Reply 'send' for fresh summary or 'done' to stop
 """
             
             return message
@@ -633,7 +576,6 @@ def summary_scheduler():
     summary_generator = DailySummaryGenerator()
     
     last_sent_date = None
-    last_sent_time = None
     
     # Send summary immediately on startup for testing
     print("\n" + "="*50)
@@ -655,46 +597,28 @@ def summary_scheduler():
             current_date = now.strftime("%d-%m-%Y")
             current_time = now.strftime("%H:%M")
             
+            # Reset flag for new day
             if last_sent_date != current_date:
-                summary_handler.stop_sending_today = False
-                last_sent_date = current_date
-                last_sent_time = None
+                last_sent_date = None
                 print(f"New day started: {current_date}")
-            
-            summary_handler.check_for_done_message()
             
             # Print status every 5 minutes
             if now.minute % 5 == 0 and now.second < 10:
                 print(f"[{current_time}] Scheduler running... (waiting for {SUMMARY_SEND_TIME})")
-                print(f"   Stop flag: {summary_handler.stop_sending_today}")
-                if last_sent_time:
-                    print(f"   Last sent: {last_sent_time}")
+                if last_sent_date:
+                    print(f"   Summary already sent today at 16:30")
             
-            if (current_time >= SUMMARY_SEND_TIME and 
-                not summary_handler.stop_sending_today):
+            # Send summary once at 16:30 IST
+            if current_time == SUMMARY_SEND_TIME and last_sent_date != current_date:
+                print(f"Sending summary at {current_time}")
                 
-                should_send = False
+                summary_messages = summary_generator.format_summary_message()
                 
-                if last_sent_time is None:
-                    should_send = True
+                if summary_handler.send_messages(summary_messages):
+                    last_sent_date = current_date
+                    print(f"Summary sent successfully at {current_time} on {current_date}")
                 else:
-                    last_dt = datetime.strptime(f"{current_date} {last_sent_time}", "%d-%m-%Y %H:%M")
-                    current_dt = datetime.strptime(f"{current_date} {current_time}", "%d-%m-%Y %H:%M")
-                    time_diff = (current_dt - last_dt).total_seconds()
-                    
-                    if time_diff >= SUMMARY_SEND_INTERVAL:
-                        should_send = True
-                
-                if should_send:
-                    print(f"Sending summary at {current_time}")
-                    
-                    summary_messages = summary_generator.format_summary_message()
-                    
-                    if summary_handler.send_messages(summary_messages):
-                        last_sent_time = current_time
-                        print(f"Summary sent successfully at {current_time}")
-                    else:
-                        print(f"Failed to send summary at {current_time}")
+                    print(f"Failed to send summary at {current_time}")
             
             time.sleep(60)
             
